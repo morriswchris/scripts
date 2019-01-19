@@ -1,0 +1,65 @@
+#!/bin/bash
+
+VOLUME_TO_MONITOR=$1
+
+print_usage() {
+  IFS='' read -r -d '' message <<'EOF'
+    monitor_volume allows you to monitor if a drive is mounted to your system. It uses 'mount' to determine if the drive is present.
+    If the drive is not found in the mount list, it will trigger a PD alert specifying the drive path that is not available
+
+    You must specify an ENV of PD_ROUTING_KEY to ensure the alert can be routed to the right place\
+
+    Usage:
+      monitor_volume <path_to_volume>
+EOF
+
+  echo "$message"
+}
+
+
+if [[ -z "${VOLUME_TO_MONITOR}" ]]; then
+  printf "You must pass in a volume path to monitor!\n\n"
+  print_usage
+  exit 1
+fi
+
+if [[ -z "${PD_ROUTING_KEY}" ]]; then
+  printf "$PD_ROUTING_KEY must be defined!\n\n"
+  print_usage
+  exit 1
+fi
+
+send_to_pd () {
+  eventAction=$1
+  time=$(date +%Y-%m-%dT%H:%M:%S%z)
+  payload=$(cat <<-EOF
+    { 
+      "payload": {
+        "summary": "No Media Volume Detected for $VOLUME_TO_MONITOR!",
+        "severity": "warning",
+        "source": "howemc",
+        "timestamp": "$time",
+        "component": "Movies",
+        "custom_details": {
+          "description": "There was an issue accessing the drive path. The drive may be disconnected!"
+        }
+    },
+      "routing_key": "$PD_ROUTING_KEY",
+      "event_action": "$eventAction",
+      "dedup_key": "monitor_dir-$VOLUME_TO_MONITOR"
+    }
+  EOF
+  )
+
+  curl -X POST \
+    https://events.pagerduty.com/v2/enqueue \
+    -H 'Accept: application/vnd.pagerduty+json;version=2' \
+    -H 'Content-Type: application/json' \
+    -H 'cache-control: no-cache' \
+    -d "$payload"
+  }
+
+if [[ $(mount | awk -v path=$VOLUME_TO_MONITOR '$3 == path {print $3}') == "" ]]; then
+  echo "Triggering PD for non-existant volume: $VOLUME_TO_MONITOR"
+  send_to_pd "trigger"
+fi
