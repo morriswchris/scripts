@@ -1,0 +1,6 @@
+#!/bin/bash
+
+git -C $NOTES_DIR  pull origin main
+ls $NOTES_DIR | xargs git -C $NOTES_DIR add
+git -C $NOTES_DIR ca -m 'sync notes'
+git -C $NOTES_DIR push origin main
